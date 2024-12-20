@@ -1,6 +1,7 @@
 const Registration = require('../models/Registration');
 const Event = require('../models/Event');
 const User = require('../models/User');
+const sendMail = require('../utils/mailer');
 
 // Register for an event
 const registerForEvent = async (req, res) => {
@@ -12,6 +13,12 @@ const registerForEvent = async (req, res) => {
     const existingRegistration = await Registration.findOne({ event: eventId, user: userId });
     if (existingRegistration) {
       return res.status(400).json({ message: 'User is already registered for this event.' });
+    }
+
+    // Fetch the event details
+    const event = await Event.findById(eventId).populate('organizer', 'name email');
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
     }
 
     // Create a new registration
@@ -26,6 +33,18 @@ const registerForEvent = async (req, res) => {
 
     // Add the user to the attendees array in the Event model
     await Event.findByIdAndUpdate(eventId, { $addToSet: { attendees: userId } });
+
+    // Generate the "Add to Calendar" link
+    const calendarLink = `https://www.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(event.name)}&dates=${new Date(event.date).toISOString().replace(/-|:|\.\d\d\d/g, '')}/${new Date(new Date(event.date).getTime() + 2 * 60 * 60 * 1000).toISOString().replace(/-|:|\.\d\d\d/g, '')}&details=${encodeURIComponent(event.description)}&location=${encodeURIComponent(event.location)}&trp=false&sprop=&sprop=name:`;
+
+    // Send registration email
+    const emailContent = `
+      You have successfully registered for the event: ${event.name}
+      Date: ${new Date(event.date).toLocaleString()}
+      Organizer: ${event.organizer.name}
+      Add to Calendar: ${calendarLink}
+    `;
+    await sendMail(newRegistration.user.email, 'Event Registration Successful', emailContent);
 
     res.status(201).json({ message: 'Registration successful', registration: newRegistration });
   } catch (error) {
@@ -51,9 +70,15 @@ const cancelRegistration = async (req, res) => {
     const userId = req.user._id;
 
     // Find the registration
-    const registration = await Registration.findById(registrationId);
+    const registration = await Registration.findById(registrationId).populate('user', 'email');
     if (!registration) {
       return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    // Fetch the event details
+    const event = await Event.findById(registration.event);
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
     }
 
     // Remove the registration
@@ -61,6 +86,9 @@ const cancelRegistration = async (req, res) => {
 
     // Remove the user from the attendees array in the Event model
     await Event.findByIdAndUpdate(registration.event, { $pull: { attendees: userId } });
+
+    // Send cancellation email
+    await sendMail(registration.user.email, 'Event Registration Cancelled', `You have successfully cancelled your registration for the event: ${event.name}`);
 
     res.status(200).json({ message: 'Registration cancelled successfully' });
   } catch (error) {
