@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(express.json());
 app.use(cors({
-    origin: 'http://localhost:5173', // Replace with your React app's URL
+    origin: process.env.CORS_ORIGIN, // Replace with your React app's URL
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true, // Optional, if you need to send cookies or auth headers
 }));
